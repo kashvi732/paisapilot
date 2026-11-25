@@ -23,6 +23,7 @@ as the code. It supplements `PLAN.md` (product requirements) and
 | Phase 7.3 | Authenticated CSV report export | Implemented |
 | Phase 7.4 | Dashboard salary clarity, settings preferences, and navigation safety | Implemented |
 | Phase 7.5 | MongoDB aggregation ObjectId and transaction category name fix | Implemented |
+| Phase 7.6 | Code review: reliability, security, and timezone fixes | Implemented |
 | Phase 8 | Recurring jobs, alerts, exports, and deployment | Planned |
 
 The application is not yet a complete production finance product. Registration,
@@ -200,8 +201,11 @@ characters), and `CRON_SECRET` (at least 16 characters). Production requires
 - `backend/src/routes/reports.js`: authenticated report endpoints.
 
 Authentication uses a 15-minute signed JWT in an HttpOnly cookie. The browser
-JavaScript cannot read it. Logout clears the cookie, but stateless JWT
-revocation/rotation is still a production-hardening task.
+JavaScript cannot read it. The cookie is re-issued once less than half of its
+lifetime remains, so active sessions continue while idle ones expire. Logout
+always clears the cookie, but stateless JWT revocation is still a
+production-hardening task. Login and registration have a per-process
+in-memory rate limit; a multi-instance deployment needs a shared store.
 
 ## Endpoints not implemented yet
 
@@ -319,3 +323,21 @@ For every meaningful implementation milestone:
 
 This workflow preserves project history and keeps this document synchronized
 with the actual repository.
+
+## Phase 7.6: code review fixes (2026-11-25)
+
+- Dashboard "Add Transaction" now persists through the API.
+- Editing a transaction no longer shifts its time by the UTC offset.
+- Month keys use the local calendar; reports, recent transactions and CSV
+  exports use `month=YYYY-MM` resolved in the user's timezone, so category
+  totals match the summary.
+- Timezones are validated as IANA zones; stored invalid values fall back to
+  `Asia/Kolkata`. Register no longer offers non-existent zones.
+- Sliding session refresh, idempotent logout, login/registration rate limits,
+  login timing equalization, security headers, sanitized request IDs, and
+  `TRUST_PROXY` configuration.
+- Category IDs that are malformed return `404`; re-creating an archived
+  category name restores it.
+- Error states on every data page, transaction pagination, responsive sidebar
+  and modal fixes, route-level code splitting, and a working ESLint setup.
+- Backend tests: 56 (Supertest routes, validators, services with mocked models).

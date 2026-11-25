@@ -28,17 +28,21 @@ List responses use `{ data, pagination }`, where pagination is
 |---|---|---|---|
 | POST | `/auth/register` | No | Body: `name`, `email`, `password`, `currency`, `timezone`. Returns `201 { user }` and sets cookie. |
 | POST | `/auth/login` | No | Body: `email`, `password`. Returns `200 { user }` and sets cookie. |
-| POST | `/auth/logout` | Yes | Clears the session cookie. JWT revocation is a follow-up hardening task. Returns `204`. |
+| POST | `/auth/logout` | No | Always clears the session cookie, even if it already expired. JWT revocation is a follow-up hardening task. Returns `204`. |
 | GET | `/auth/me` | Yes | Returns `200 { user }` without password fields. |
 
 Passwords are never returned. Duplicate email is `409`; invalid credentials
-are a generic `401`.
+are a generic `401`. `timezone` must be a valid IANA zone (for example
+`Asia/Kolkata`). Login and registration are rate limited per client IP and
+return `429` with `Retry-After` when exceeded. Sessions last 15 minutes and
+are re-issued automatically once less than half of that remains, so active
+users stay signed in.
 
 ## Transactions
 
 | Method | Path | Auth | Contract |
 |---|---|---|---|
-| GET | `/transactions` | Yes | Query: `from`, `to`, `type`, `categoryId`, `page`, `limit`. Returns paginated transactions. |
+| GET | `/transactions` | Yes | Query: `from`, `to` or `month=YYYY-MM` (user timezone), `type`, `categoryId`, `page`, `limit`. Returns paginated transactions. |
 | POST | `/transactions` | Yes | Body: `type`, `amountPaise`, `categoryId`, `date`, `paymentMode`, optional `note`, `isRecurring`, `recurrence`. Returns `201 { transaction }`. |
 | PUT | `/transactions/:id` | Yes | Same allow-listed fields as create. Returns `200 { transaction }`. |
 | DELETE | `/transactions/:id` | Yes | User-scoped delete. Returns `204`. |
@@ -52,9 +56,9 @@ rejected. Missing or foreign IDs behave as `404`, not as data disclosure.
 | Method | Path | Auth | Query | Response |
 |---|---|---|---|---|
 | GET | `/reports/summary` | Yes | `month=YYYY-MM` | `{ summary: { incomePaise, expensePaise, balancePaise, savingsRate, transactionCount } }` |
-| GET | `/reports/by-category` | Yes | `from`, `to` | `{ categories: [{ categoryId, categoryName, totalPaise, count }] }` |
+| GET | `/reports/by-category` | Yes | `month=YYYY-MM` or `from` + `to` | `{ categories: [{ categoryId, categoryName, totalPaise, count }] }` |
 | GET | `/reports/monthly-trend` | Yes | `year=YYYY` | `{ months: [{ month, incomePaise, expensePaise, balancePaise }] }` |
-| GET | `/reports/export` | Yes | `from`, `to`, `format=csv` | Streamed CSV with `Content-Disposition`; PDF is deferred. |
+| GET | `/reports/export` | Yes | `month=YYYY-MM` or `from` + `to`, `format=csv` | Streamed CSV with `Content-Disposition`; PDF is deferred. |
 
 All report values come from user-scoped MongoDB aggregation pipelines. The
 summary pipeline uses `$match` and `$facet` for totals/counts; category and
