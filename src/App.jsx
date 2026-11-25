@@ -1,29 +1,35 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { PageLayout } from './components/layout/PageLayout'
-import Dashboard from './pages/Dashboard'
-import Transactions from './pages/Transactions'
-import Budgets from './pages/Budgets'
-import Analytics from './pages/Analytics'
-import Settings from './pages/Settings'
 import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
 import { ProtectedRoute, SetupRequiredRoute, OnboardingRoute } from './routes/ProtectedRoute'
-import Onboarding from './pages/Onboarding'
+
+// Pages load on demand so the sign-in screen does not download the charting library.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Transactions = lazy(() => import('./pages/Transactions'))
+const Budgets = lazy(() => import('./pages/Budgets'))
+const Analytics = lazy(() => import('./pages/Analytics'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Onboarding = lazy(() => import('./pages/Onboarding'))
+
+const pageFallback = <div className="p-12 text-center text-secondary">Loading…</div>
+const page = element => <Suspense fallback={pageFallback}>{element}</Suspense>
 
 const router = createBrowserRouter([
   {
     path: '/',
     element: <ProtectedRoute><SetupRequiredRoute><PageLayout /></SetupRequiredRoute></ProtectedRoute>,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'dashboard', element: <Dashboard /> },
-      { path: 'transactions', element: <Transactions /> },
-      { path: 'budgets', element: <Budgets /> },
-      { path: 'analytics', element: <Analytics /> },
-      { path: 'settings', element: <Settings /> },
+      { index: true, element: page(<Dashboard />) },
+      { path: 'dashboard', element: page(<Dashboard />) },
+      { path: 'transactions', element: page(<Transactions />) },
+      { path: 'budgets', element: page(<Budgets />) },
+      { path: 'analytics', element: page(<Analytics />) },
+      { path: 'settings', element: page(<Settings />) },
     ],
   },
-  { path: '/onboarding', element: <ProtectedRoute><OnboardingRoute><Onboarding /></OnboardingRoute></ProtectedRoute> },
+  { path: '/onboarding', element: <ProtectedRoute><OnboardingRoute>{page(<Onboarding />)}</OnboardingRoute></ProtectedRoute> },
   { path: '/login', element: <Login /> },
   { path: '/register', element: <Register /> },
 ])

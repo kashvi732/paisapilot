@@ -9,13 +9,13 @@ import {
 export function DonutChart({ data, width = 300, height = 300, title = '' }) {
   if (!data || data.length === 0) {
     return (
-      <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         No data
       </div>
     )
   }
 
-  const total = data.reduce((sum, item) => sum + item.total, 0)
+  const total = data.reduce((sum, item) => sum + (item.total || 0), 0) || 1
 
   const COLORS = [
     '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
@@ -29,7 +29,7 @@ export function DonutChart({ data, width = 300, height = 300, title = '' }) {
           {title}
         </h3>
       )}
-      <div style={{ width, height, margin: '0 auto' }}>
+      <div style={{ width: '100%', maxWidth: width, height, margin: '0 auto' }}>
         <ResponsiveContainer width="100%" height={height}>
           <PieChart>
             <Pie

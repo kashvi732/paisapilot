@@ -6,23 +6,31 @@ import { DonutChart } from '../components/charts/DonutChart'
 import { BarChart } from '../components/charts/BarChart'
 import { realAdapter } from '../services/realAdapter'
 import { useAuth } from '../context/AuthContext'
-import { formatINR } from '../utils/format'
-
-const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
-const CURRENT_MONTH_LABEL = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+import { ErrorAlert } from '../components/ui/ErrorAlert'
+import { currentMonthKey, formatINR, formatMonthKey } from '../utils/format'
 
 export default function Analytics() {
   const { user } = useAuth()
   const [report, setReport] = useState(null)
   const [exporting, setExporting] = useState(false)
-  useEffect(() => { realAdapter.getDashboardReport({ month: CURRENT_MONTH }).then(setReport) }, [])
+  const [error, setError] = useState('')
+  const [CURRENT_MONTH] = useState(currentMonthKey)
+  const CURRENT_MONTH_LABEL = formatMonthKey(CURRENT_MONTH)
+
+  useEffect(() => {
+    let active = true
+    realAdapter.getDashboardReport({ month: CURRENT_MONTH })
+      .then(result => { if (active) setReport(result) })
+      .catch(err => { if (active) setError(err.message || 'Could not load analytics.') })
+    return () => { active = false }
+  }, [CURRENT_MONTH])
+
   const exportCsv = async () => {
     setExporting(true)
+    setError('')
     try {
-      const [year, month] = CURRENT_MONTH.split('-').map(Number)
-      const from = new Date(Date.UTC(year, month - 1, 1)).toISOString()
-      const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)).toISOString()
-      const blob = await realAdapter.exportReport({ from, to })
+      // The API resolves the month in the user's timezone, matching the report.
+      const blob = await realAdapter.exportReport({ month: CURRENT_MONTH })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -30,11 +38,15 @@ export default function Analytics() {
       document.body.appendChild(link)
       link.click()
       link.remove()
-      URL.revokeObjectURL(url)
+      // Revoking synchronously can cancel the download in some browsers.
+      setTimeout(() => URL.revokeObjectURL(url), 0)
+    } catch (err) {
+      setError(err.message || 'Could not export the report.')
     } finally {
       setExporting(false)
     }
   }
+  if (!report && error) return <ErrorAlert message={error} />
   if (!report) return <div className="p-12 text-center text-secondary">Loading analytics…</div>
 
   const baseSalary = user?.monthlyIncomePaise || 0
@@ -69,6 +81,7 @@ export default function Analytics() {
           <Download size={16} /> Export CSV
         </Button>
       </div>
+      {error && <ErrorAlert message={error} onDismiss={() => setError('')} />}
       <div className="grid gap-4 sm:grid-cols-3">
         <Metric label="Gross Income" value={formatINR(grossIncome)} icon={<ArrowUpRight />} tone="text-income" />
         <Metric label="Expenses" value={formatINR(grossExpense)} icon={<ArrowDownRight />} tone="text-expense" />

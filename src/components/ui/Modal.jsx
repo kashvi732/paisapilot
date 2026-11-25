@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '../../utils/cn'
@@ -12,6 +13,15 @@ export function Modal({
   className = '',
   closeOnOverlayClick = true,
 }) {
+  useEffect(() => {
+    if (!isOpen) return undefined
+    const onKeyDown = event => {
+      if (event.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   const sizes = {
@@ -30,18 +40,24 @@ export function Modal({
       />
       <div
         className={cn(
-          'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 p-6',
+          'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full p-4 sm:p-6',
           sizes[size],
           className
         )}
       >
-        <div className="bg-surface-container-lowest rounded-xl border border-outline/30 shadow-modal flex flex-col">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={typeof title === 'string' ? title : undefined}
+          className="bg-surface-container-lowest rounded-xl border border-outline/30 shadow-modal flex flex-col max-h-[calc(100vh-2rem)] overflow-y-auto"
+        >
           {title && (
             <div className="flex items-center justify-between p-6 border-b border-outline/30">
               <h3 className="headline-lg text-headline-lg text-on-surface font-semibold">
                 {title}
               </h3>
               <button
+                type="button"
                 onClick={onClose}
                 className="p-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
                 aria-label="Close modal"

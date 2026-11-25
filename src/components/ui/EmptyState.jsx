@@ -1,4 +1,5 @@
 import { AlertCircle, CreditCard, Inbox } from 'lucide-react'
+import { cn } from '../../utils/cn'
 
 const EMPTY_ICONS = {
   transactions: Inbox,

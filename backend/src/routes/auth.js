@@ -1,31 +1,20 @@
 import { Router } from 'express'
-import { createRequireAuth } from '../middleware/auth.js'
-import { AppError } from '../middleware/errors.js'
-import { sessionCookieOptions } from '../utils/cookies.js'
+import { createRequireAuthFromConfig } from '../middleware/auth.js'
+import { validate } from '../validators/common.js'
+import { createRateLimiter } from '../middleware/rateLimit.js'
+import { clearSessionCookieOptions, sessionCookieOptions } from '../utils/cookies.js'
 import { loginSchema, registerSchema } from '../validators/auth.js'
 
-function validate(schema, body) {
-  const result = schema.safeParse(body)
-  if (!result.success) {
-    const fields = {}
-    result.error.issues.forEach(issue => {
-      fields[issue.path.join('.') || 'request'] = issue.message
-    })
-    throw new AppError(400, 'VALIDATION_ERROR', 'Request validation failed.', fields)
-  }
-  return result.data
-}
+const FIFTEEN_MINUTES = 15 * 60 * 1000
 
-export function createAuthRouter({ authService, config }) {
+export function createAuthRouter({ authService, config, rateLimit = {} }) {
   const router = Router()
   const cookieOptions = sessionCookieOptions(config)
-  const requireAuth = createRequireAuth({
-    cookieName: config.COOKIE_NAME,
-    jwtSecret: config.JWT_SECRET,
-    authService,
-  })
+  const requireAuth = createRequireAuthFromConfig(config, authService)
+  const loginLimiter = createRateLimiter({ windowMs: FIFTEEN_MINUTES, max: rateLimit.loginMax ?? 20 })
+  const registerLimiter = createRateLimiter({ windowMs: FIFTEEN_MINUTES * 4, max: rateLimit.registerMax ?? 10 })
 
-  router.post('/register', async (req, res, next) => {
+  router.post('/register', registerLimiter, async (req, res, next) => {
     try {
       const result = await authService.register(validate(registerSchema, req.body))
       res.cookie(config.COOKIE_NAME, result.token, cookieOptions)
@@ -35,7 +24,7 @@ export function createAuthRouter({ authService, config }) {
     }
   })
 
-  router.post('/login', async (req, res, next) => {
+  router.post('/login', loginLimiter, async (req, res, next) => {
     try {
       const result = await authService.login(validate(loginSchema, req.body))
       res.cookie(config.COOKIE_NAME, result.token, cookieOptions)
@@ -45,8 +34,9 @@ export function createAuthRouter({ authService, config }) {
     }
   })
 
-  router.post('/logout', requireAuth, (req, res) => {
-    res.clearCookie(config.COOKIE_NAME, { ...cookieOptions, maxAge: undefined })
+  // Logout always clears the cookie, even when the session already expired.
+  router.post('/logout', (req, res) => {
+    res.clearCookie(config.COOKIE_NAME, clearSessionCookieOptions(config))
     return res.status(204).send()
   })
 

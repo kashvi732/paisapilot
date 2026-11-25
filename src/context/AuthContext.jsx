@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { realAdapter } from '../services/realAdapter'
+import { setUnauthorizedHandler } from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -22,6 +23,13 @@ export function AuthProvider({ children }) {
     }
     checkAuth()
     return () => { mounted = false }
+  }, [])
+
+  // An expired session on any data request sends the user back to sign in
+  // instead of leaving pages stuck on errors.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null))
+    return () => setUnauthorizedHandler(null)
   }, [])
 
   const login = useCallback(async (email, password) => {
@@ -82,6 +90,7 @@ export function AuthProvider({ children }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext)
   if (!context) {

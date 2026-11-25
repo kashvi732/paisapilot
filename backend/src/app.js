@@ -14,6 +14,7 @@ import { createReportsRouter } from './routes/reports.js'
 import { createBudgetService } from './services/budgetService.js'
 import { createBudgetsRouter } from './routes/budgets.js'
 import { createPreferencesRouter } from './routes/preferences.js'
+import { securityHeaders } from './middleware/securityHeaders.js'
 
 const defaultAuthConfig = {
   COOKIE_NAME: 'paisapilot_session',
@@ -33,12 +34,18 @@ export function createApp({
   reportService = null,
   budgetService = null,
   authConfig = defaultAuthConfig,
+  trustProxy = false,
+  rateLimit = {},
 } = {}) {
   const app = express()
   const resolvedAuthService = authService || createAuthService({ jwtSecret: authConfig.JWT_SECRET })
 
   app.disable('x-powered-by')
+  // Behind a reverse proxy (Render, Railway, Nginx) this makes req.ip the
+  // client address, which the auth rate limiter relies on.
+  if (trustProxy) app.set('trust proxy', trustProxy)
   app.use(requestContext)
+  app.use(securityHeaders)
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin || origin === frontendOrigin) {
@@ -55,6 +62,7 @@ export function createApp({
   app.use('/api/auth', createAuthRouter({
     authService: resolvedAuthService,
     config: authConfig,
+    rateLimit,
   }))
   app.use('/api', createFinanceRouter({
     authService: resolvedAuthService,

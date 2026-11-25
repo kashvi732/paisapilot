@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Filter, Pencil, Plus, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Select } from '../components/ui/Select'
 import { Table } from '../components/ui/Table'
+import { ErrorAlert } from '../components/ui/ErrorAlert'
 import { TransactionForm } from '../components/forms/TransactionForm'
 import { realAdapter } from '../services/realAdapter'
 import { formatINR, formatShortDate } from '../utils/format'
 import { cn } from '../utils/cn'
+
+const PAGE_SIZE = 50
 
 export default function Transactions() {
   const [transactions, setTransactions] = useState([])
@@ -22,26 +25,47 @@ export default function Transactions() {
   const [editingTransaction, setEditingTransaction] = useState(null)
   const [loading, setLoading] = useState(true)
   const [categories, setCategories] = useState([])
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0 })
+  const [error, setError] = useState('')
+  const latestRequest = useRef(0)
+
+  // Any filter change starts again from the first page (batched into one load).
+  const withPageReset = setter => value => {
+    setter(value)
+    setPage(1)
+  }
 
   const loadTransactions = useCallback(async () => {
+    const requestId = ++latestRequest.current
     setLoading(true)
+    setError('')
     try {
       const result = await realAdapter.getTransactions({
-        limit: 100,
+        page,
+        limit: PAGE_SIZE,
         type,
         category,
         from: from ? new Date(`${from}T00:00:00`).toISOString() : undefined,
-        to: to ? new Date(`${to}T23:59:59`).toISOString() : undefined,
+        to: to ? new Date(`${to}T23:59:59.999`).toISOString() : undefined,
       })
+      // Ignore responses that arrive after a newer filter request was sent.
+      if (requestId !== latestRequest.current) return
       setTransactions(result.transactions)
+      setPagination({ total: result.total, totalPages: result.totalPages })
+    } catch (err) {
+      if (requestId !== latestRequest.current) return
+      setError(err.message || 'Could not load transactions.')
     } finally {
-      setLoading(false)
+      if (requestId === latestRequest.current) setLoading(false)
     }
-  }, [type, category, from, to])
+  }, [page, type, category, from, to])
 
   useEffect(() => { loadTransactions() }, [loadTransactions])
   useEffect(() => {
-    realAdapter.getCategories().then(result => setCategories(result.categories))
+    realAdapter.getCategories()
+      .then(result => setCategories(result.categories))
+      .catch(err => setError(err.message || 'Could not load categories.'))
   }, [])
 
   const visibleTransactions = useMemo(() => {
@@ -67,8 +91,14 @@ export default function Transactions() {
 
   const handleDelete = async transaction => {
     if (!window.confirm(`Delete "${transaction.note || transaction.categoryName}"?`)) return
-    await realAdapter.deleteTransaction(transaction.id)
-    loadTransactions()
+    try {
+      await realAdapter.deleteTransaction(transaction.id)
+      // Step back if the last row on a later page was removed.
+      if (transactions.length === 1 && page > 1) setPage(value => value - 1)
+      else loadTransactions()
+    } catch (err) {
+      setError(err.message || 'Could not delete the transaction.')
+    }
   }
 
   const columns = [
@@ -145,35 +175,50 @@ export default function Transactions() {
             <SlidersHorizontal size={16} /> Filters <Filter size={14} />
           </Button>
           {(query || type || category || from || to) && (
-            <Button variant="ghost" onClick={() => { setQuery(''); setType(''); setCategory(''); setFrom(''); setTo('') }}>
+            <Button variant="ghost" onClick={() => { setQuery(''); setType(''); setCategory(''); setFrom(''); setTo(''); setPage(1) }}>
               <X size={15} /> Clear
             </Button>
           )}
         </div>
         {showFilters && (
           <div className="grid gap-4 border-b border-outline/30 bg-surface-container-low p-4 sm:grid-cols-2">
-            <Select label="Type" value={type} onChange={setType} placeholder="All types" options={[
+            <Select label="Type" value={type} onChange={withPageReset(setType)} placeholder="All types" clearable options={[
               { value: 'income', label: 'Income' }, { value: 'expense', label: 'Expense' },
             ]} />
-            <Select label="Category" value={category} onChange={setCategory} placeholder="All categories"
+            <Select label="Category" value={category} onChange={withPageReset(setCategory)} placeholder="All categories" clearable
               options={categories.map(item => ({ value: item.id, label: item.name }))} />
             <label className="flex flex-col gap-2 text-label-sm uppercase tracking-wider text-secondary">
               From
-              <input aria-label="Filter from date" type="date" value={from} onChange={event => setFrom(event.target.value)} className="input-base" />
+              <input aria-label="Filter from date" type="date" value={from} onChange={event => withPageReset(setFrom)(event.target.value)} className="input-base" />
             </label>
             <label className="flex flex-col gap-2 text-label-sm uppercase tracking-wider text-secondary">
               To
-              <input aria-label="Filter to date" type="date" value={to} onChange={event => setTo(event.target.value)} className="input-base" />
+              <input aria-label="Filter to date" type="date" value={to} onChange={event => withPageReset(setTo)(event.target.value)} className="input-base" />
             </label>
           </div>
         )}
+        {error && <ErrorAlert message={error} onDismiss={() => setError('')} className="m-4" />}
         {loading ? (
           <div className="p-12 text-center text-secondary">Loading ledger…</div>
         ) : (
           <Table columns={columns} data={visibleTransactions} />
         )}
-        <div className="border-t border-outline/30 px-4 py-3 text-sm text-secondary">
-          Showing {visibleTransactions.length} of {transactions.length} transactions
+        <div className="flex flex-col gap-3 border-t border-outline/30 px-4 py-3 text-sm text-secondary sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Showing {visibleTransactions.length} of {pagination.total} transactions
+            {query.trim() && transactions.length !== visibleTransactions.length ? ' (search applies to this page)' : ''}
+          </span>
+          {pagination.totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>
+                Previous
+              </Button>
+              <span>Page {page} of {pagination.totalPages}</span>
+              <Button variant="secondary" size="sm" disabled={page >= pagination.totalPages || loading} onClick={() => setPage(value => value + 1)}>
+                Next
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
       <TransactionForm

@@ -8,7 +8,7 @@ export function TopBar({ user }) {
 
   return (
     <header className="h-16 border-b border-outline/30 bg-surface-container-low backdrop-blur-md sticky top-0 z-20">
-      <div className="flex items-center justify-between h-full px-6">
+      <div className="flex items-center justify-between h-full px-4 sm:px-6">
         <div className="flex items-center gap-4">
           <div className="hidden md:flex items-center gap-4">
             <div className="relative">

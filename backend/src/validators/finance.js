@@ -1,7 +1,5 @@
 import { z } from 'zod'
-
-const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Must be a valid resource ID.')
-const isoDate = z.string().datetime({ offset: true })
+import { isOrderedRange, isoDate, month, objectId, orderedRangeIssue } from './common.js'
 
 const recurrence = z.object({
   frequency: z.enum(['weekly', 'monthly', 'yearly']),
@@ -44,9 +42,12 @@ export const transactionQuerySchema = z.object({
   to: isoDate.optional(),
   type: z.enum(['income', 'expense']).optional(),
   categoryId: objectId.optional(),
+  month: month.optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
-}).strict().refine(value => !value.from || !value.to || value.from <= value.to, {
-  message: 'from must be earlier than or equal to to.',
-  path: ['from'],
-})
+}).strict()
+  .refine(value => !value.month || (!value.from && !value.to), {
+    message: 'Use either month or from/to, not both.',
+    path: ['month'],
+  })
+  .refine(isOrderedRange, orderedRangeIssue)

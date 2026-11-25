@@ -6,6 +6,7 @@ const app = createApp({
   frontendOrigin: config.FRONTEND_ORIGIN,
   version: '0.1.0',
   authConfig: config,
+  trustProxy: config.TRUST_PROXY,
 })
 
 let server

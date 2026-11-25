@@ -11,6 +11,7 @@ function publicBudget(budget, category, usedPaise) {
     id: budget._id.toString(),
     categoryId: budget.categoryId.toString(),
     categoryName: category?.name || 'Archived category',
+    categoryColor: category?.color || undefined,
     month: budget.month,
     limitPaise,
     usedPaise,
@@ -62,9 +63,11 @@ export function createBudgetService({
     async list(userId, month, timezone) {
       const budgets = await budgetModel.find({ userId, month }).sort({ categoryId: 1 }).lean()
       const categoryIds = budgets.map(budget => budget.categoryId)
-      const categories = await categoryModel.find({ _id: { $in: categoryIds } }).lean()
+      const [categories, usage] = await Promise.all([
+        categoryModel.find({ _id: { $in: categoryIds } }, { name: 1, color: 1 }).lean(),
+        usageByCategory(userId, month, timezone),
+      ])
       const categoryMap = new Map(categories.map(category => [category._id.toString(), category]))
-      const usage = await usageByCategory(userId, month, timezone)
       return budgets.map(budget => publicBudget(
         budget,
         categoryMap.get(budget.categoryId.toString()),
@@ -80,7 +83,7 @@ export function createBudgetService({
         { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
       ).lean()
       const usage = await usageByCategory(userId, payload.month, timezone)
-      return publicBudget(budget, category, usage.get(categoryId) || 0)
+      return publicBudget(budget, category, usage.get(category._id.toString()) || 0)
     },
   }
 }

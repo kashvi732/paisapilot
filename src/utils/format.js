@@ -1,4 +1,4 @@
-import { format, startOfMonth, endOfMonth, subMonths, addMonths, startOfDay, endOfDay } from 'date-fns'
+import { format, startOfMonth, endOfMonth, subMonths, addMonths } from 'date-fns'
 
 export function formatINR(amountPaise, options = {}) {
   const { showSymbol = true, compact = false, showPaise = false } = options
@@ -112,4 +112,30 @@ export function calculateSavingsRate(income, expense) {
 export function calculatePercentage(part, total) {
   if (total <= 0) return 0
   return Math.min(100, (part / total) * 100)
+}
+// Month keys ("yyyy-MM") are always derived from the browser's local calendar.
+// Using toISOString() here would report the previous month or day for users
+// ahead of UTC (for example, IST before 05:30).
+export function currentMonthKey(date = new Date()) {
+  return format(date, 'yyyy-MM')
+}
+
+export function monthKeyToDate(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number)
+  return new Date(year, month - 1, 1)
+}
+
+export function shiftMonthKey(monthKey, delta) {
+  return format(addMonths(monthKeyToDate(monthKey), delta), 'yyyy-MM')
+}
+
+export function formatMonthKey(monthKey) {
+  return monthKeyToDate(monthKey).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+}
+
+// Value for <input type="datetime-local">, which expects local wall-clock time.
+export function toDateTimeLocalValue(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return format(d, "yyyy-MM-dd'T'HH:mm")
 }

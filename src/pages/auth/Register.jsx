@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Mail, User, Lock, ArrowRight } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
@@ -102,11 +101,9 @@ export default function Register() {
             <Select
               label="Timezone"
               options={[
+                // Only valid IANA zones: "Asia/Mumbai" and similar do not exist and
+                // previously broke every report for accounts that picked them.
                 { value: 'Asia/Kolkata', label: 'India Standard Time (IST)' },
-                { value: 'Asia/Mumbai', label: 'India (Mumbai)' },
-                { value: 'Asia/Delhi', label: 'India (Delhi)' },
-                { value: 'Asia/Chennai', label: 'India (Chennai)' },
-                { value: 'Asia/Bangalore', label: 'India (Bangalore)' },
               ]}
               value={form.timezone}
               onChange={v => setForm(prev => ({ ...prev, timezone: v }))}
