@@ -7,12 +7,13 @@ import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
 import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
-import { ProtectedRoute } from './routes/ProtectedRoute'
+import { ProtectedRoute, SetupRequiredRoute, OnboardingRoute } from './routes/ProtectedRoute'
+import Onboarding from './pages/Onboarding'
 
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <PageLayout />,
+    element: <ProtectedRoute><SetupRequiredRoute><PageLayout /></SetupRequiredRoute></ProtectedRoute>,
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'dashboard', element: <Dashboard /> },
@@ -22,6 +23,7 @@ const router = createBrowserRouter([
       { path: 'settings', element: <Settings /> },
     ],
   },
+  { path: '/onboarding', element: <ProtectedRoute><OnboardingRoute><Onboarding /></OnboardingRoute></ProtectedRoute> },
   { path: '/login', element: <Login /> },
   { path: '/register', element: <Register /> },
 ])

@@ -6,6 +6,14 @@ import { requestLogger } from './middleware/requestLogger.js'
 import { errorHandler, notFoundHandler } from './middleware/errors.js'
 import { createAuthRouter } from './routes/auth.js'
 import { createAuthService } from './services/authService.js'
+import { createCategoryService } from './services/categoryService.js'
+import { createTransactionService } from './services/transactionService.js'
+import { createFinanceRouter } from './routes/finance.js'
+import { createReportService } from './services/reportService.js'
+import { createReportsRouter } from './routes/reports.js'
+import { createBudgetService } from './services/budgetService.js'
+import { createBudgetsRouter } from './routes/budgets.js'
+import { createPreferencesRouter } from './routes/preferences.js'
 
 const defaultAuthConfig = {
   COOKIE_NAME: 'paisapilot_session',
@@ -20,9 +28,14 @@ export function createApp({
   serviceName = 'paisapilot-api',
   version = '0.1.0',
   authService = null,
+  categoryService = null,
+  transactionService = null,
+  reportService = null,
+  budgetService = null,
   authConfig = defaultAuthConfig,
 } = {}) {
   const app = express()
+  const resolvedAuthService = authService || createAuthService({ jwtSecret: authConfig.JWT_SECRET })
 
   app.disable('x-powered-by')
   app.use(requestContext)
@@ -40,8 +53,28 @@ export function createApp({
   app.use(requestLogger)
   app.use('/api', createHealthRouter({ serviceName, version }))
   app.use('/api/auth', createAuthRouter({
-    authService: authService || createAuthService({ jwtSecret: authConfig.JWT_SECRET }),
+    authService: resolvedAuthService,
     config: authConfig,
+  }))
+  app.use('/api', createFinanceRouter({
+    authService: resolvedAuthService,
+    authConfig,
+    categoryService: categoryService || createCategoryService(),
+    transactionService: transactionService || createTransactionService(),
+  }))
+  app.use('/api', createReportsRouter({
+    authService: resolvedAuthService,
+    authConfig,
+    reportService: reportService || createReportService(),
+  }))
+  app.use('/api', createBudgetsRouter({
+    authService: resolvedAuthService,
+    authConfig,
+    budgetService: budgetService || createBudgetService(),
+  }))
+  app.use('/api', createPreferencesRouter({
+    authService: resolvedAuthService,
+    authConfig,
   }))
   app.use(notFoundHandler)
   app.use(errorHandler)

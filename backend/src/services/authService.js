@@ -10,6 +10,7 @@ function publicUser(user) {
     currency: user.currency,
     monthlyIncomePaise: user.monthlyIncomePaise,
     timezone: user.timezone,
+    onboardingCompleted: user.onboardingCompleted ?? false,
   }
 }
 
@@ -42,6 +43,8 @@ export function createAuthService({ userModel = User, jwtSecret, tokenTtl = '15m
         passwordHash,
         currency: payload.currency.toUpperCase(),
         timezone: payload.timezone,
+        monthlyIncomePaise: payload.monthlyIncomePaise,
+        onboardingCompleted: false,
       })
       return { user: publicUser(user), token: createToken(user) }
     },
@@ -61,6 +64,21 @@ export function createAuthService({ userModel = User, jwtSecret, tokenTtl = '15m
     async getUserById(id) {
       const user = await userModel.findById(id).lean()
       return user ? publicUser(user) : null
+    },
+
+    async updatePreferences(id, payload) {
+      const user = await userModel.findByIdAndUpdate(
+        id,
+        { $set: { ...payload, currency: payload.currency?.toUpperCase() } },
+        { new: true, runValidators: true },
+      ).lean()
+      if (!user) {
+        const error = new Error('User was not found.')
+        error.status = 404
+        error.code = 'USER_NOT_FOUND'
+        throw error
+      }
+      return publicUser(user)
     },
   }
 }

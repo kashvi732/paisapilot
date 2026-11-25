@@ -10,10 +10,11 @@ import { DonutChart } from '../components/charts/DonutChart'
 import { BarChart } from '../components/charts/BarChart'
 import { Sparkline } from '../components/charts/Sparkline'
 import { TransactionForm } from '../components/forms/TransactionForm'
-import { demoAdapter } from '../services/demoAdapter'
+import { realAdapter } from '../services/realAdapter'
 import { formatINR, formatDate, formatShortDate, getMonthsArray, calculateSavingsRate, calculatePercentage } from '../utils/format'
 import { cn } from '../utils/cn'
-import { DEMO_CURRENT_MONTH } from '../services/demoData'
+import { useAuth } from '../context/AuthContext'
+const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
 
 export default function Dashboard() {
   const [summary, setSummary] = useState(null)
@@ -22,14 +23,16 @@ export default function Dashboard() {
   const [recentTransactions, setRecentTransactions] = useState([])
   const [budgets, setBudgets] = useState([])
   const [insights, setInsights] = useState([])
-  const [selectedMonth, setSelectedMonth] = useState(DEMO_CURRENT_MONTH)
+  const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [categories, setCategories] = useState([])
+  const { user } = useAuth()
 
   const loadData = useCallback(async () => {
     try {
       const [reportResult, budgetResult] = await Promise.all([
-        demoAdapter.getDashboardReport({ month: selectedMonth }),
-        demoAdapter.getBudgets({ month: selectedMonth }),
+        realAdapter.getDashboardReport({ month: selectedMonth }),
+        realAdapter.getBudgets({ month: selectedMonth }),
       ])
 
       setSummary(reportResult)
@@ -37,11 +40,16 @@ export default function Dashboard() {
       setMonthlyTrend(reportResult.monthlyTrend)
       setBudgets(budgetResult.budgets)
 
-      const txnResult = await demoAdapter.getTransactions({ limit: 6, month: selectedMonth })
+      const [year, month] = selectedMonth.split('-').map(Number)
+      const lastDay = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)).toISOString()
+      const txnResult = await realAdapter.getTransactions({
+        limit: 6,
+        from: `${selectedMonth}-01T00:00:00.000Z`,
+        to: lastDay,
+      })
       setRecentTransactions(txnResult.transactions)
 
-      const { DEMO_INSIGHTS } = await import('../services/demoData')
-      setInsights(DEMO_INSIGHTS)
+      setInsights([])
     } catch (err) {
       console.error('Failed to load dashboard data:', err)
     }
@@ -50,6 +58,9 @@ export default function Dashboard() {
   useEffect(() => {
     loadData()
   }, [loadData])
+  useEffect(() => {
+    realAdapter.getCategories().then(result => setCategories(result.categories))
+  }, [])
 
   const handleAddTransaction = (transaction) => {
     setRecentTransactions(prev => [transaction, ...prev].slice(0, 6))
@@ -65,10 +76,20 @@ export default function Dashboard() {
     )
   }
 
-  const monthlyIncome = summary.income
-  const monthlyExpense = summary.expense
-  const balance = summary.balance
-  const savingsRate = summary.savingsRate
+  const loggedIncome = summary.income || 0
+  const monthlyExpense = summary.expense || 0
+  const baseSalary = user?.monthlyIncomePaise || 0
+
+  // Gross monthly income combines declared base salary + additional logged income
+  const totalGrossIncome = baseSalary > 0
+    ? (loggedIncome >= baseSalary ? loggedIncome : baseSalary + loggedIncome)
+    : loggedIncome
+
+  const netBalance = totalGrossIncome - monthlyExpense
+  const savingsRate = totalGrossIncome > 0
+    ? Math.max(0, Number(((netBalance / totalGrossIncome) * 100).toFixed(1)))
+    : 0
+  const totalAllocated = budgets.reduce((sum, b) => sum + (b.limit || 0), 0)
 
   const budgetItems = budgets.map(b => ({
     ...b,
@@ -76,32 +97,44 @@ export default function Dashboard() {
     isOverBudget: b.used > b.limit,
   }))
 
+  const effectiveMonthlyTrend = monthlyTrend.map(m => {
+    if (m.month === selectedMonth && baseSalary > 0) {
+      const inc = Math.max(m.income, totalGrossIncome)
+      return {
+        ...m,
+        income: inc,
+        balance: inc - m.expense,
+      }
+    }
+    return m
+  })
+
   return (
     <div className="space-y-6">
-      <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 flex items-center gap-3">
-        <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-        <span className="text-sm text-primary font-medium">
-          Demo Mode — Using demonstration data. No real bank accounts or UPI services are connected.
-        </span>
-      </div>
-
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="headline-lg text-headline-lg text-on-surface font-semibold tracking-tight">
-            Welcome back, Yuvraj
+            Welcome back, {user?.name || 'there'}
           </h1>
-          <p className="body-md text-body-md text-secondary">
-            Your money, under control. Here's your financial flightpath for{' '}
-            <span className="font-medium text-on-surface">
-              {new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+          <div className="flex flex-wrap items-center gap-2 body-md text-body-md text-secondary">
+            <span>
+              Your money, under control. Here's your financial flightpath for{' '}
+              <span className="font-medium text-on-surface">
+                {new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+              </span>
             </span>
-          </p>
+            {user?.monthlyIncomePaise ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                Base salary: {formatINR(user.monthlyIncomePaise)}/mo
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex p-1 rounded-xl bg-surface-container-high" role="group">
             <button
-              onClick={() => setSelectedMonth(DEMO_CURRENT_MONTH)}
+              onClick={() => setSelectedMonth(CURRENT_MONTH)}
               className="px-3.5 py-1.5 rounded-lg text-label-md font-label-md bg-surface-container-lowest text-on-surface shadow-sm transition-colors"
             >
               {new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
@@ -118,11 +151,22 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => {
+                if (selectedMonth >= CURRENT_MONTH) return
                 const d = new Date(selectedMonth + '-01')
                 d.setMonth(d.getMonth() + 1)
-                setSelectedMonth(d.toISOString().slice(0, 7))
+                const next = d.toISOString().slice(0, 7)
+                if (next <= CURRENT_MONTH) {
+                  setSelectedMonth(next)
+                }
               }}
-              className="px-3.5 py-1.5 rounded-lg text-label-md font-label-md text-secondary hover:text-on-surface transition-colors"
+              disabled={selectedMonth >= CURRENT_MONTH}
+              className={cn(
+                "px-3.5 py-1.5 rounded-lg text-label-md font-label-md transition-colors",
+                selectedMonth >= CURRENT_MONTH
+                  ? "opacity-35 cursor-not-allowed text-secondary"
+                  : "text-secondary hover:text-on-surface"
+              )}
+              title={selectedMonth >= CURRENT_MONTH ? "Cannot navigate past current month" : "Next Month"}
             >
               Next Month
             </button>
@@ -133,19 +177,28 @@ export default function Dashboard() {
         <Card padded={false} className="p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-label-sm text-label-sm text-secondary uppercase tracking-wider">Total Balance</p>
+              <p className="text-label-sm text-label-sm text-secondary uppercase tracking-wider">Net Balance</p>
             </div>
             <Wallet size={20} className="text-secondary" />
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-bold text-on-surface">{formatINR(balance)}</span>
+            <span className={cn("text-3xl font-bold", netBalance >= 0 ? "text-on-surface" : "text-error")}>
+              {formatINR(netBalance)}
+            </span>
           </div>
-          <Sparkline
-            data={monthlyTrend.map((m, i) => ({ value: m.balance, label: m.label }))}
-            dataKey="value"
-            color={balance >= 0 ? '#006948' : '#ef4444'}
-            height={40}
-          />
+          <div className="mt-2 text-label-sm">
+            <span className="text-secondary text-xs">
+              {formatINR(totalGrossIncome)} income − {formatINR(monthlyExpense)} expenses
+            </span>
+          </div>
+          <div className="mt-2">
+            <Sparkline
+              data={effectiveMonthlyTrend.map((m, i) => ({ value: m.balance, label: m.label }))}
+              dataKey="value"
+              color={netBalance >= 0 ? '#006948' : '#ef4444'}
+              height={36}
+            />
+          </div>
         </Card>
 
         <Card padded={false} className="p-5">
@@ -156,11 +209,22 @@ export default function Dashboard() {
             <DollarSign size={20} className="text-emerald-600" />
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-bold text-on-surface">{formatINR(monthlyIncome)}</span>
+            <span className="text-3xl font-bold text-on-surface">{formatINR(totalGrossIncome)}</span>
           </div>
-          <div className="mt-2 flex items-center gap-1">
-            <TrendingUp size={14} className="text-emerald-600" />
-            <span className="text-label-sm text-emerald-600 font-medium">+12% vs last month</span>
+          <div className="mt-2 text-label-sm">
+            {baseSalary > 0 && loggedIncome > 0 && loggedIncome < baseSalary ? (
+              <span className="text-secondary text-xs">
+                {formatINR(baseSalary)} base + {formatINR(loggedIncome)} extra
+              </span>
+            ) : baseSalary > 0 && loggedIncome === 0 ? (
+              <span className="text-secondary text-xs">
+                Base salary ({formatINR(baseSalary)})
+              </span>
+            ) : (
+              <span className="text-secondary text-xs">
+                {totalGrossIncome > 0 ? 'Total received this month' : 'No income recorded'}
+              </span>
+            )}
           </div>
         </Card>
         <Card padded={false} className="p-5">
@@ -173,9 +237,18 @@ export default function Dashboard() {
           <div className="flex items-baseline gap-1">
             <span className="text-3xl font-bold text-on-surface">{formatINR(monthlyExpense)}</span>
           </div>
-          <div className="mt-2 flex items-center gap-1">
-            <TrendingDown size={14} className="text-red-600" />
-            <span className="text-label-sm text-red-600 font-medium">-5% vs last month</span>
+          <div className="mt-2 text-label-sm">
+            {totalAllocated > 0 ? (
+              <span className="text-secondary text-xs">
+                {monthlyExpense > 0
+                  ? `${formatINR(monthlyExpense)} of ${formatINR(totalAllocated)} budget used`
+                  : `₹0 of ${formatINR(totalAllocated)} budget used`}
+              </span>
+            ) : (
+              <span className="text-secondary text-xs">
+                {monthlyExpense > 0 ? 'Total expenses logged' : 'No expenses logged'}
+              </span>
+            )}
           </div>
         </Card>
 
@@ -193,7 +266,7 @@ export default function Dashboard() {
             <div className="h-full bg-primary" style={{ width: Math.min(savingsRate, 100) + '%' }} />
           </div>
           <p className="text-label-sm text-on-surface-variant mt-1">
-            {monthlyIncome > 0 ? `₹${((monthlyIncome - monthlyExpense) / 100).toFixed(0)} saved this month` : '₹0 saved'}
+            {netBalance > 0 ? `${formatINR(netBalance)} saved this month` : '₹0 saved'}
           </p>
         </Card>
       </div>
@@ -236,7 +309,7 @@ export default function Dashboard() {
             <CardSubtitle>Income vs Expense over the last 6 months</CardSubtitle>
           </CardHeader>
           <CardContent>
-            <BarChart data={monthlyTrend} height={300} title="Cash Flow" />
+            <BarChart data={effectiveMonthlyTrend} height={300} title="Cash Flow" />
           </CardContent>
         </Card>
 
@@ -253,17 +326,20 @@ export default function Dashboard() {
               <div className="flex-1 space-y-3">
                 {categorySpending.map(item => {
                   const catColor = item.categoryColor || '#9ca3af'
+                  const pct = typeof item.percentage === 'number'
+                    ? item.percentage
+                    : (monthlyExpense > 0 ? (((item.total ?? item.totalPaise) || 0) / monthlyExpense) * 100 : 0)
                   return (
-                    <div key={item.categoryId} className="flex items-center gap-3">
+                    <div key={item.categoryId || item.name} className="flex items-center gap-3">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: catColor }} />
                       <div className="flex-1">
-                        <div className="text-label-sm text-label-sm text-on-surface font-medium">{item.categoryName}</div>
+                        <div className="text-label-sm text-label-sm text-on-surface font-medium">{item.categoryName || item.name}</div>
                         <div className="text-label-sm text-on-surface-variant">
-                          ₹{(item.total / 100).toFixed(0)} ({item.percentage.toFixed(0)}%)
+                          ₹{(((item.total ?? item.totalPaise) || 0) / 100).toFixed(0)} ({pct.toFixed(0)}%)
                         </div>
                       </div>
                       <div className="text-right text-label-sm font-mono tabular-nums text-on-surface">
-                        -₹{(item.total / 100).toFixed(0)}
+                        -₹{(((item.total ?? item.totalPaise) || 0) / 100).toFixed(0)}
                       </div>
                     </div>
                   )
@@ -383,6 +459,7 @@ export default function Dashboard() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onSave={handleAddTransaction}
+        categories={categories}
       />
     </div>
   )

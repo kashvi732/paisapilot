@@ -6,8 +6,7 @@ import { Card } from '../components/ui/Card'
 import { Select } from '../components/ui/Select'
 import { Table } from '../components/ui/Table'
 import { TransactionForm } from '../components/forms/TransactionForm'
-import { demoAdapter } from '../services/demoAdapter'
-import { DEMO_CATEGORIES } from '../services/demoData'
+import { realAdapter } from '../services/realAdapter'
 import { formatINR, formatShortDate } from '../utils/format'
 import { cn } from '../utils/cn'
 
@@ -22,16 +21,17 @@ export default function Transactions() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [categories, setCategories] = useState([])
 
   const loadTransactions = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await demoAdapter.getTransactions({
+      const result = await realAdapter.getTransactions({
         limit: 100,
         type,
         category,
-        from: from ? `${from}T00:00:00` : undefined,
-        to: to ? `${to}T23:59:59` : undefined,
+        from: from ? new Date(`${from}T00:00:00`).toISOString() : undefined,
+        to: to ? new Date(`${to}T23:59:59`).toISOString() : undefined,
       })
       setTransactions(result.transactions)
     } finally {
@@ -40,6 +40,9 @@ export default function Transactions() {
   }, [type, category, from, to])
 
   useEffect(() => { loadTransactions() }, [loadTransactions])
+  useEffect(() => {
+    realAdapter.getCategories().then(result => setCategories(result.categories))
+  }, [])
 
   const visibleTransactions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -53,9 +56,9 @@ export default function Transactions() {
 
   const handleSave = async payload => {
     if (payload.id) {
-      await demoAdapter.updateTransaction(payload.id, payload)
+      await realAdapter.updateTransaction(payload.id, payload)
     } else {
-      await demoAdapter.createTransaction(payload)
+      await realAdapter.createTransaction(payload)
     }
     setShowAddModal(false)
     setEditingTransaction(null)
@@ -64,7 +67,7 @@ export default function Transactions() {
 
   const handleDelete = async transaction => {
     if (!window.confirm(`Delete "${transaction.note || transaction.categoryName}"?`)) return
-    await demoAdapter.deleteTransaction(transaction.id)
+    await realAdapter.deleteTransaction(transaction.id)
     loadTransactions()
   }
 
@@ -121,7 +124,7 @@ export default function Transactions() {
         <div>
           <p className="text-label-sm uppercase tracking-wider text-primary">Ledger</p>
           <h1 className="headline-lg text-on-surface font-semibold">Transactions</h1>
-          <p className="body-md text-secondary">Search and organize every inflow and outflow in your demo ledger.</p>
+          <p className="body-md text-secondary">Search and organize every inflow and outflow in your ledger.</p>
         </div>
         <Button onClick={() => setShowAddModal(true)}><Plus size={17} /> Add transaction</Button>
       </div>
@@ -153,7 +156,7 @@ export default function Transactions() {
               { value: 'income', label: 'Income' }, { value: 'expense', label: 'Expense' },
             ]} />
             <Select label="Category" value={category} onChange={setCategory} placeholder="All categories"
-              options={DEMO_CATEGORIES.map(item => ({ value: item.id, label: item.name }))} />
+              options={categories.map(item => ({ value: item.id, label: item.name }))} />
             <label className="flex flex-col gap-2 text-label-sm uppercase tracking-wider text-secondary">
               From
               <input aria-label="Filter from date" type="date" value={from} onChange={event => setFrom(event.target.value)} className="input-base" />
@@ -178,6 +181,7 @@ export default function Transactions() {
         transaction={editingTransaction}
         onClose={() => { setShowAddModal(false); setEditingTransaction(null) }}
         onSave={handleSave}
+        categories={categories}
       />
     </div>
   )

@@ -1,6 +1,6 @@
 # PaisaPilot Current Project State
 
-Last updated: 2026-11-13
+Last updated: 2026-11-15
 
 This is the working current-state reference for PaisaPilot. Read it before
 starting a new implementation task and update it in the same milestone change
@@ -15,15 +15,20 @@ as the code. It supplements `PLAN.md` (product requirements) and
 | Phase 2 | Architecture, data model, API contract, decisions, test plan | Complete |
 | Phase 3 | Express/Mongoose backend foundation and health checks | Complete |
 | Phase 4 | JWT authentication in HttpOnly cookies | Implemented; hardening remains |
-| Phase 5 | Categories and transaction persistence APIs | Next |
-| Phase 6 | Reports, budgets, aggregation, and timezone correctness | Planned |
-| Phase 7 | Recurring jobs, alerts, and exports | Planned |
-| Phase 8 | Frontend API adapter integration and deployment | Planned |
+| Phase 5 | Categories and transaction persistence APIs | Implemented; live DB verification remains |
+| Phase 6 | Reports, budgets, aggregation, and timezone correctness | Implemented |
+| Phase 7 | Authenticated frontend integration and personalized onboarding | Implemented; E2E hardening remains |
+| Phase 7.1 | Real-user shell cleanup and sidebar consistency | Implemented |
+| Phase 7.2 | Onboarding persistence and transaction filter correctness | Implemented |
+| Phase 7.3 | Authenticated CSV report export | Implemented |
+| Phase 7.4 | Dashboard salary clarity, settings preferences, and navigation safety | Implemented |
+| Phase 7.5 | MongoDB aggregation ObjectId and transaction category name fix | Implemented |
+| Phase 8 | Recurring jobs, alerts, exports, and deployment | Planned |
 
-The application is not yet a complete production finance product. The
-frontend demo is functional and the backend foundation/authentication slices
-exist, but finance persistence, server-side reports, and frontend production
-integration remain.
+The application is not yet a complete production finance product. Registration,
+cookie authentication, onboarding, categories, transactions, reports, budgets,
+and preferences now use the backend. Recurring transactions, exports, security
+hardening, and end-to-end release validation remain.
 
 ## Repository architecture
 
@@ -43,8 +48,9 @@ PaisaPilot/
 ```text
 React pages/components
   -> Context/hooks and UI state
-  -> demoAdapter today
-  -> real Axios API adapter later
+  -> realAdapter
+  -> cookie-based fetch API client
+  -> Express routes/services
 ```
 
 ### Backend layers
@@ -56,7 +62,7 @@ HTTP request
   -> validator
   -> authentication middleware
   -> service
-  -> repository/model (future finance slices)
+  -> repository/model
   -> MongoDB
 ```
 
@@ -70,20 +76,21 @@ is required for Supertest-based tests.
 
 - `src/main.jsx`: mounts React with `AuthProvider` and `DemoProvider`.
 - `src/App.jsx`: React Router routes for dashboard, transactions, budgets,
-  analytics, settings, login, and register.
+  analytics, settings, login, register, and onboarding.
 - `src/components/layout/PageLayout.jsx`: shared shell and sidebar state.
 - `Sidebar.jsx` and `TopBar.jsx`: shared navigation and header.
 
 ### Current pages and behavior
 
-- `Dashboard.jsx`: balance, income, expenses, savings rate, category spending,
-  budgets, recent transactions, and charts using demo reports.
-- `Transactions.jsx`: search, type/category/date filters, add, edit, delete,
-  confirmation, and refresh using the demo adapter.
-- `Budgets.jsx`: budget summary and utilization using recalculated demo usage.
-- `Analytics.jsx`: demo income/expense/savings metrics and charts.
-- `Settings.jsx`: demo reset and persisted local preferences.
-- `Login.jsx` and `Register.jsx`: currently demo-adapter-based flows.
+- `Dashboard.jsx`: authenticated balance, income, expenses, savings rate,
+  category spending, budgets, recent transactions, and charts.
+- `Transactions.jsx`: authenticated search, filters, pagination, add, edit,
+  delete, and refresh.
+- `Budgets.jsx`: authenticated monthly budget summary and utilization.
+- `Analytics.jsx`: authenticated income/expense/savings metrics and charts.
+- `Settings.jsx`: backend-backed currency and timezone preferences.
+- `Login.jsx`, `Register.jsx`, and `Onboarding.jsx`: cookie-authenticated
+  account creation/login followed by initial categories and budgets.
 
 ### Frontend data and validation
 
@@ -91,14 +98,21 @@ is required for Supertest-based tests.
   paise.
 - `src/services/demoAdapter.jsx`: asynchronous in-memory auth, transaction,
   category, budget, and report behavior.
-- `src/services/api.js`: early real API scaffold, not connected to pages and
-  not yet aligned with the final cookie adapter.
+- `src/services/api.js`: native `fetch` client with `credentials: include`,
+  backend error-envelope handling, paise normalization, and date/payment-mode
+  conversion.
+- `src/services/realAdapter.js`: page-facing adapter for authenticated API
+  operations.
+- `src/components/layout/PageLayout.jsx`, `Sidebar.jsx`, and `TopBar.jsx`:
+  use the authenticated user rather than demo identity data; sidebar collapse
+  and expand controls use directionally correct icons and real logout.
 - `src/utils/validation.js`: Zod schemas for current frontend validation.
 - `src/components/forms/TransactionForm.jsx`: controlled add/edit form with
   amount/date/category/payment validation.
 
-The current frontend does not persist financial data in MongoDB. Demo data is
-not production user data and must never silently mix with API data.
+Production pages no longer use the demo adapter. Financial data is read and
+written through authenticated MongoDB-backed APIs. The legacy demo adapter
+remains available only as unused presentation/test infrastructure.
 
 ## Implemented backend
 
@@ -134,6 +148,19 @@ characters), and `CRON_SECRET` (at least 16 characters). Production requires
 | POST | `/api/auth/login` | Verify password, set JWT cookie |
 | POST | `/api/auth/logout` | Clear the JWT cookie |
 | GET | `/api/auth/me` | Verify cookie and return current public user |
+| GET | `/api/categories` | List active system and user categories |
+| POST | `/api/categories` | Create a user category |
+| PUT | `/api/categories/:id` | Update a user category |
+| DELETE | `/api/categories/:id` | Archive a user category |
+| GET | `/api/transactions` | List user transactions with filters and pagination |
+| POST | `/api/transactions` | Create a user transaction |
+| PUT | `/api/transactions/:id` | Update a user transaction |
+| DELETE | `/api/transactions/:id` | Delete a user transaction |
+| GET | `/api/reports/summary` | Return monthly income, expense, balance, savings rate, and count |
+| GET | `/api/reports/by-category` | Return user-scoped expense totals by category |
+| GET | `/api/reports/monthly-trend` | Return timezone-aware monthly income and expense totals |
+| GET | `/api/budgets?month=YYYY-MM` | Return monthly budgets with calculated usage |
+| PUT | `/api/budgets/:categoryId` | Upsert a user-owned monthly category budget |
 
 ### Authentication files
 
@@ -147,6 +174,30 @@ characters), and `CRON_SECRET` (at least 16 characters). Production requires
 - `backend/src/routes/auth.js`: HTTP validation, cookie setting/clearing, and
   authentication route composition.
 - `backend/src/utils/cookies.js`: cookie parsing and shared options.
+- `backend/src/models/Category.js`: user-owned/system category schema and
+  indexes; archived categories remain available for historical references.
+- `backend/src/models/Transaction.js`: user-owned transaction schema with
+  integer-paise amounts and `{ userId, date }` query index.
+- `backend/src/validators/finance.js`: strict category, transaction, and
+  pagination/filter validation.
+- `backend/src/services/categoryService.js`: user-scoped category listing,
+  creation, updates, and archive-only deletion.
+- `backend/src/services/transactionService.js`: user-scoped transaction CRUD,
+  category ownership checks, filtering, and pagination.
+- `backend/src/routes/finance.js`: authenticated category and transaction
+  routes.
+- `backend/src/models/Budget.js`: monthly user/category budget model with a
+  unique `(userId, categoryId, month)` index.
+- `backend/src/services/budgetService.js`: budget upsert/list operations with
+  transaction aggregation for usage and remaining amounts.
+- `backend/src/validators/budgets.js`: strict month, category ID, and paise
+  limit validation.
+- `backend/src/routes/budgets.js`: authenticated budget endpoints.
+- `backend/src/utils/timezone.js`: timezone-aware month and year boundaries.
+- `backend/src/services/reportService.js`: user-scoped MongoDB aggregation
+  for summary, category, and monthly trend reports.
+- `backend/src/validators/reports.js`: strict report period validation.
+- `backend/src/routes/reports.js`: authenticated report endpoints.
 
 Authentication uses a 15-minute signed JWT in an HttpOnly cookie. The browser
 JavaScript cannot read it. Logout clears the cookie, but stateless JWT
@@ -157,14 +208,7 @@ revocation/rotation is still a production-hardening task.
 These are documented contracts, not working routes:
 
 ```text
-GET/POST/PUT/DELETE /api/transactions
-GET /api/reports/summary
-GET /api/reports/by-category
-GET /api/reports/monthly-trend
 GET /api/reports/export
-GET/PUT /api/budgets
-GET/POST/PUT/DELETE /api/categories
-GET/PATCH /api/user/preferences
 GET/POST/PUT/DELETE /api/recurring
 POST /api/internal/jobs/recurring
 ```
@@ -214,32 +258,36 @@ GET http://localhost:5000/api/ready
 
 ## Verification state
 
-Latest verified authentication milestone:
+Latest verified frontend integration milestone:
 
-- Backend tests: 9 passed.
+- Backend tests: 16 passed.
 - Frontend production build: passed.
-- Local MongoDB connectivity: previously verified.
+- `git diff --check`: passed.
+- Route tests verify authentication, finance routing, and report/budget
+  validation.
+- Registration includes monthly income and redirects to personalized
+  category/budget onboarding.
+- Authenticated pages use the real API adapter; JWTs are not stored in browser
+  local storage.
+- Local MongoDB smoke test verified aggregation totals, category grouping,
+  monthly trend output, and Asia/Kolkata month boundaries with temporary data
+  cleaned up afterward.
+- Local MongoDB budget smoke test verified upsert, expense usage aggregation,
+  remaining amount, utilization percentage, and cleanup.
 - Live Atlas connectivity: not verified.
-- Frontend-to-production-API integration: not implemented.
+- Frontend-to-production-API integration: local build-validated; full browser
+  registration/onboarding E2E remains.
 
 ## Next implementation order
 
 ### Phase 5: categories and transactions
 
-1. Add Category and Transaction Mongoose models and indexes.
-2. Add authenticated repository/service boundaries.
-3. Add category CRUD with archive safety.
-4. Add transaction CRUD with ownership filtering.
-5. Add pagination and date/type/category filters.
-6. Add Supertest coverage for cross-user access and invalid amounts.
+1. Add CSV export and recurring transaction processing.
+2. Add CSRF protection and login rate limiting before production deployment.
 
 ### Phase 6: reports and budgets
 
-1. Add monthly Budget model.
-2. Add timezone boundary utilities.
-3. Add MongoDB summary/category/trend aggregation pipelines.
-4. Add budget usage, remaining, and overspending responses.
-5. Test paise totals, month boundaries, and zero-income savings rate.
+1. Add tests for zero-income savings rate and budget overages.
 
 ### Phase 7: automation and exports
 
@@ -250,12 +298,10 @@ Latest verified authentication milestone:
 
 ### Phase 8: integration and release
 
-1. Replace page-level demo calls with a shared service/data-adapter factory.
-2. Add Axios `withCredentials` API adapter.
-3. Ensure demo and real modes cannot mix.
-4. Add frontend/backend integration tests.
-5. Add CSRF/rate-limit/JWT hardening.
-6. Deploy frontend, backend, MongoDB Atlas, and scheduled jobs.
+1. Add frontend/backend integration and browser flow tests.
+2. Add CSRF/rate-limit/JWT hardening.
+3. Persist onboarding completion and make setup idempotent.
+4. Deploy frontend, backend, MongoDB Atlas, and scheduled jobs.
 
 ## Milestone workflow
 
@@ -266,7 +312,8 @@ For every meaningful implementation milestone:
 3. Update this document and `progress.md`.
 4. Run targeted tests, build, and `git diff --check`.
 5. Inspect the diff and verify no secrets are included.
-6. Create one meaningful commit with the required Copilot co-author trailer.
+6. Create one meaningful commit with your configured Git identity only; do not
+   add a Copilot co-author trailer.
 7. Push the commit to `origin/main` unless the user explicitly says not to.
 8. Report the commit hash, verification results, and remaining work.
 

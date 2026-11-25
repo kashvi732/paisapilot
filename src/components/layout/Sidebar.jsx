@@ -1,14 +1,14 @@
 import { NavLink } from 'react-router-dom'
-import { LogOut, Menu, ChevronLeft, LayoutDashboard, ListChecks, Target, BarChart3, Settings } from 'lucide-react'
+import { LogOut, Menu, ChevronRight, LayoutDashboard, ListChecks, Target, BarChart3, Settings } from 'lucide-react'
 import { cn } from '../../utils/cn'
-import { DEMO_USER } from '../../utils/constants'
+import { useAuth } from '../../context/AuthContext'
 
 const SIDEBAR_WIDTH = 'w-64'
 const SIDEBAR_WIDTH_COLLAPSED = 'w-16'
-
 const SIDEBAR_ID = 'app-sidebar'
 
-export function Sidebar({ collapsed, onToggle }) {
+export function Sidebar({ user, collapsed, onToggle }) {
+  const { logout } = useAuth()
   return (
     <aside
       id={SIDEBAR_ID}
@@ -43,7 +43,7 @@ export function Sidebar({ collapsed, onToggle }) {
           aria-controls={SIDEBAR_ID}
         >
           {collapsed ? (
-            <ChevronLeft size={20} aria-hidden="true" />
+            <ChevronRight size={20} aria-hidden="true" />
           ) : (
             <Menu size={20} aria-hidden="true" />
           )}
@@ -84,20 +84,20 @@ export function Sidebar({ collapsed, onToggle }) {
             className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs"
             aria-hidden="true"
           >
-            {DEMO_USER.name.charAt(0)}
+            {user?.name?.charAt(0)?.toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
             <div className={cn('text-sm font-medium text-inverse-on-surface', collapsed && 'sr-only')}>
-              {DEMO_USER.name}
+              {user?.name || 'User'}
             </div>
             <div className={cn('text-xs text-inverse-on-surface/60', collapsed && 'sr-only')}>
-              {DEMO_USER.email}
+              {user?.email || ''}
             </div>
           </div>
         </div>
         <button
           type="button"
-          onClick={() => {}}
+          onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors"
         >
           <LogOut size={18} aria-hidden="true" />
