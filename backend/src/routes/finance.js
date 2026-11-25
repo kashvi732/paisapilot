@@ -1,6 +1,7 @@
 import { Router } from 'express'
-import { createRequireAuth } from '../middleware/auth.js'
-import { AppError } from '../middleware/errors.js'
+import { createRequireAuthFromConfig } from '../middleware/auth.js'
+import { validate } from '../validators/common.js'
+import { resolveRangeQuery } from '../utils/timezone.js'
 import {
   categoryCreateSchema,
   categoryUpdateSchema,
@@ -9,17 +10,6 @@ import {
   transactionUpdateSchema,
 } from '../validators/finance.js'
 
-function validate(schema, input) {
-  const result = schema.safeParse(input)
-  if (!result.success) {
-    const fields = {}
-    result.error.issues.forEach(issue => {
-      fields[issue.path.join('.') || 'request'] = issue.message
-    })
-    throw new AppError(400, 'VALIDATION_ERROR', 'Request validation failed.', fields)
-  }
-  return result.data
-}
 
 function resourceId(req) {
   return req.params.id
@@ -27,11 +17,7 @@ function resourceId(req) {
 
 export function createFinanceRouter({ categoryService, transactionService, authConfig, authService }) {
   const router = Router()
-  const requireAuth = createRequireAuth({
-    cookieName: authConfig.COOKIE_NAME,
-    jwtSecret: authConfig.JWT_SECRET,
-    authService,
-  })
+  const requireAuth = createRequireAuthFromConfig(authConfig, authService)
 
   router.use(['/categories', '/transactions'], requireAuth)
 
@@ -70,7 +56,8 @@ export function createFinanceRouter({ categoryService, transactionService, authC
 
   router.get('/transactions', async (req, res, next) => {
     try {
-      res.json(await transactionService.list(req.user.id, validate(transactionQuerySchema, req.query)))
+      const query = resolveRangeQuery(validate(transactionQuerySchema, req.query), req.user.timezone)
+      res.json(await transactionService.list(req.user.id, query))
     } catch (error) {
       next(error)
     }

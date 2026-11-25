@@ -1,5 +1,14 @@
+import mongoose from 'mongoose'
 import { Category } from '../models/Category.js'
 import { AppError } from '../middleware/errors.js'
+
+function notFound() {
+  return new AppError(404, 'CATEGORY_NOT_FOUND', 'Category was not found.')
+}
+
+function assertId(id) {
+  if (!mongoose.isValidObjectId(id)) throw notFound()
+}
 
 function publicCategory(category) {
   return {
@@ -24,6 +33,15 @@ export function createCategoryService({ categoryModel = Category } = {}) {
 
     async create(userId, payload) {
       try {
+        // The unique (userId, name) index also covers archived categories, so a
+        // previously archived category is restored rather than blocking the name.
+        const archived = await categoryModel.findOneAndUpdate(
+          { userId, isSystem: false, isArchived: true, name: payload.name },
+          { $set: { ...payload, isArchived: false } },
+          { new: true, runValidators: true },
+        ).lean()
+        if (archived) return publicCategory(archived)
+
         const category = await categoryModel.create({ ...payload, userId })
         return publicCategory(category)
       } catch (error) {
@@ -35,13 +53,14 @@ export function createCategoryService({ categoryModel = Category } = {}) {
     },
 
     async update(userId, id, payload) {
+      assertId(id)
       try {
         const category = await categoryModel.findOneAndUpdate(
           { _id: id, userId, isSystem: false, isArchived: false },
           { $set: payload },
           { new: true, runValidators: true },
         ).lean()
-        if (!category) throw new AppError(404, 'CATEGORY_NOT_FOUND', 'Category was not found.')
+        if (!category) throw notFound()
         return publicCategory(category)
       } catch (error) {
         if (error?.code === 11000) {
@@ -52,11 +71,12 @@ export function createCategoryService({ categoryModel = Category } = {}) {
     },
 
     async archive(userId, id) {
+      assertId(id)
       const result = await categoryModel.updateOne(
         { _id: id, userId, isSystem: false, isArchived: false },
         { $set: { isArchived: true } },
       )
-      if (!result.matchedCount) throw new AppError(404, 'CATEGORY_NOT_FOUND', 'Category was not found.')
+      if (!result.matchedCount) throw notFound()
     },
   }
 }

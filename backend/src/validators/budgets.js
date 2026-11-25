@@ -1,7 +1,7 @@
 import { z } from 'zod'
+import { month } from './common.js'
 
 const categoryId = z.string().regex(/^[a-f\d]{24}$/i, 'Must be a valid category ID.')
-const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Must use YYYY-MM format.')
 
 export const budgetQuerySchema = z.object({ month }).strict()
 

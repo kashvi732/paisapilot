@@ -17,6 +17,8 @@ const envSchema = z.object({
   COOKIE_SAME_SITE: z.enum(['strict', 'lax', 'none']).default('lax'),
   JWT_SECRET: z.string().trim().min(32, 'JWT_SECRET must be at least 32 characters'),
   CRON_SECRET: z.string().trim().min(16, 'CRON_SECRET must be at least 16 characters'),
+  // Number of reverse-proxy hops to trust for client IPs (0 disables).
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
 })
 
 export function loadConfig(source = process.env) {
@@ -30,6 +32,10 @@ export function loadConfig(source = process.env) {
 
   if (result.data.NODE_ENV === 'production' && !result.data.COOKIE_SECURE) {
     throw new Error('Invalid backend configuration: COOKIE_SECURE must be true in production')
+  }
+
+  if (result.data.COOKIE_SAME_SITE === 'none' && !result.data.COOKIE_SECURE) {
+    throw new Error('Invalid backend configuration: COOKIE_SAME_SITE=none requires COOKIE_SECURE=true')
   }
 
   return result.data
