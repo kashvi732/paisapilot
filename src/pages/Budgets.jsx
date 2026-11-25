@@ -2,28 +2,37 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Target } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
+import { ErrorAlert } from '../components/ui/ErrorAlert'
 import { realAdapter } from '../services/realAdapter'
-const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
-const CURRENT_MONTH_LABEL = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-import { calculatePercentage, formatINR } from '../utils/format'
+import { calculatePercentage, currentMonthKey, formatINR, formatMonthKey } from '../utils/format'
 
 export default function Budgets() {
   const [budgets, setBudgets] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [month] = useState(currentMonthKey)
 
   useEffect(() => {
-    realAdapter.getBudgets({ month: CURRENT_MONTH }).then(result => setBudgets(result.budgets))
-  }, [])
+    let active = true
+    realAdapter.getBudgets({ month })
+      .then(result => { if (active) setBudgets(result.budgets) })
+      .catch(err => { if (active) setError(err.message || 'Could not load budgets.') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [month])
 
   const totalLimit = budgets.reduce((sum, budget) => sum + budget.limit, 0)
   const totalUsed = budgets.reduce((sum, budget) => sum + budget.used, 0)
+  const overallPercent = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0
 
   return (
     <div className="space-y-6">
       <div>
         <p className="text-label-sm uppercase tracking-wider text-primary">Control center</p>
         <h1 className="headline-lg text-on-surface font-semibold">Monthly budgets</h1>
-        <p className="body-md text-secondary">Keep category spending aligned with your {CURRENT_MONTH_LABEL} plan.</p>
+        <p className="body-md text-secondary">Keep category spending aligned with your {formatMonthKey(month)} plan.</p>
       </div>
+      {error && <ErrorAlert message={error} />}
       <Card className="bg-inverse-surface text-inverse-on-surface">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -36,10 +45,10 @@ export default function Budgets() {
           </div>
           <div className="min-w-48">
             <div className="mb-2 flex justify-between text-xs text-inverse-on-surface/70">
-              <span>Overall utilization</span><span>{totalLimit ? Math.round(totalUsed / totalLimit * 100) : 0}%</span>
+              <span>Overall utilization</span><span>{Math.round(overallPercent)}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full rounded-full bg-primary-fixed" style={{ width: `${Math.min(100, totalUsed / totalLimit * 100)}%` }} />
+              <div className="h-full rounded-full bg-primary-fixed" style={{ width: `${Math.min(100, overallPercent)}%` }} />
             </div>
           </div>
         </div>
@@ -71,6 +80,11 @@ export default function Budgets() {
           )
         })}
       </div>
+      {!loading && !error && budgets.length === 0 && (
+        <Card className="text-center text-secondary">
+          No budgets set for {formatMonthKey(month)} yet. Budgets you add during setup appear here.
+        </Card>
+      )}
     </div>
   )
 }

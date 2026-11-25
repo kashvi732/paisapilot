@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
-import { Input } from '../components/ui/Input'
+import { ErrorAlert } from '../components/ui/ErrorAlert'
 import { useAuth } from '../context/AuthContext'
-import { api } from '../services/api'
+import { realAdapter } from '../services/realAdapter'
 
 export default function Settings() {
   const { user, setUser } = useAuth()
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [currency, setCurrency] = useState(user?.currency || 'INR')
   const [timezone, setTimezone] = useState(user?.timezone || 'Asia/Kolkata')
   const [monthlyIncome, setMonthlyIncome] = useState(
@@ -16,17 +18,30 @@ export default function Settings() {
   )
 
   const save = async () => {
+    setError('')
+    const income = monthlyIncome.trim() === '' ? 0 : Number(monthlyIncome)
+    if (!Number.isFinite(income) || income < 0) {
+      setError('Enter a valid, non-negative monthly income.')
+      return
+    }
     const payload = {
       currency,
       timezone,
-      monthlyIncomePaise: monthlyIncome ? Math.round(Number(monthlyIncome) * 100) : 0,
+      monthlyIncomePaise: Math.round(income * 100),
     }
-    const result = await api.updatePreferences(payload)
-    if (result?.preferences) {
-      setUser(result.preferences)
+    setSaving(true)
+    try {
+      const result = await realAdapter.updatePreferences(payload)
+      if (result?.preferences) {
+        setUser(result.preferences)
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (err) {
+      setError(err.message || 'Could not save your preferences.')
+    } finally {
+      setSaving(false)
     }
-    setSaved(true)
-    setTimeout(() => setSaved(false), 1800)
   }
 
   return (
@@ -41,6 +56,7 @@ export default function Settings() {
         <h2 className="headline-md text-on-surface font-semibold mb-4">Preferences</h2>
 
         <div className="space-y-4">
+          {error && <ErrorAlert message={error} />}
           <div className="p-4 bg-surface-container-low rounded-lg border border-outline/30">
             <label className="block text-label-sm text-on-surface font-medium mb-1">
               Expected Monthly Salary / Income (₹)
@@ -91,7 +107,7 @@ export default function Settings() {
           </div>
 
           <div className="mt-6 flex justify-end">
-            <Button onClick={save}>
+            <Button onClick={save} loading={saving}>
               {saved ? <><Check size={15} /> Saved</> : 'Save preferences'}
             </Button>
           </div>

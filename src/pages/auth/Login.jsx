@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Lock, Mail, User, ArrowRight } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Card } from '../../components/ui/Card'
@@ -81,7 +80,7 @@ export default function Login() {
           </form>
 
           <div className="mt-6 pt-4 border-t border-outline/30">
-            <p className="text-label-sm text-on-surface-variant mb-4">Don't have an account?</p>
+            <p className="text-label-sm text-on-surface-variant mb-4">Don&apos;t have an account?</p>
             <Button variant="ghost" className="w-full" onClick={() => navigate('/register')}>
               Create account
             </Button>

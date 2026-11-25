@@ -5,6 +5,7 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { realAdapter } from '../services/realAdapter'
 import { useAuth } from '../context/AuthContext'
+import { currentMonthKey } from '../utils/format'
 
 const initialCategories = [
   { name: 'Food & Dining', color: '#ef4444', budget: '' },
@@ -19,7 +20,7 @@ export default function Onboarding() {
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const { user, setUser } = useAuth()
-  const month = new Date().toISOString().slice(0, 7)
+  const month = currentMonthKey()
 
   const update = (index, field, value) => {
     setCategories(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item))
@@ -81,13 +82,14 @@ export default function Onboarding() {
         <form onSubmit={finish} className="mt-8 space-y-5">
           {error && <div className="rounded-lg bg-error-container p-3 text-error">{error}</div>}
           {categories.map((category, index) => (
-            <div key={category.name} className="grid gap-3 rounded-lg border border-outline/30 p-4 sm:grid-cols-2">
+            // Index keys keep focus while a name is being typed; the list is fixed-length.
+            <div key={index} className="grid gap-3 rounded-lg border border-outline/30 p-4 sm:grid-cols-2">
               <Input label={`Category ${index + 1}`} value={category.name} onChange={event => update(index, 'name', event.target.value)} />
               <Input label="Monthly budget (optional)" type="number" min="0" step="0.01" value={category.budget} onChange={event => update(index, 'budget', event.target.value)} placeholder="10000" />
             </div>
           ))}
           <div className="flex justify-end gap-3">
-            <Button type="button" variant="ghost" onClick={skip}>Skip for now</Button>
+            <Button type="button" variant="ghost" onClick={skip} disabled={loading}>Skip for now</Button>
             <Button type="submit" loading={loading}>Save setup</Button>
           </div>
         </form>

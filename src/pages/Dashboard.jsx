@@ -1,20 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, ArrowRight, Clock, TrendingUp, TrendingDown, CheckCircle, AlertCircle, Info, DollarSign, Wallet } from 'lucide-react'
+import { Plus, ArrowRight, Clock, CheckCircle, AlertCircle, Info, DollarSign, Wallet } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardContent, CardFooter } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Table } from '../components/ui/Table'
-import { EmptyState } from '../components/ui/EmptyState'
+import { ErrorAlert } from '../components/ui/ErrorAlert'
 import { DonutChart } from '../components/charts/DonutChart'
 import { BarChart } from '../components/charts/BarChart'
 import { Sparkline } from '../components/charts/Sparkline'
 import { TransactionForm } from '../components/forms/TransactionForm'
 import { realAdapter } from '../services/realAdapter'
-import { formatINR, formatDate, formatShortDate, getMonthsArray, calculateSavingsRate, calculatePercentage } from '../utils/format'
+import { formatINR, formatShortDate, calculatePercentage, currentMonthKey, shiftMonthKey, formatMonthKey } from '../utils/format'
 import { cn } from '../utils/cn'
 import { useAuth } from '../context/AuthContext'
-const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
 
 export default function Dashboard() {
   const [summary, setSummary] = useState(null)
@@ -23,35 +22,31 @@ export default function Dashboard() {
   const [recentTransactions, setRecentTransactions] = useState([])
   const [budgets, setBudgets] = useState([])
   const [insights, setInsights] = useState([])
+  const CURRENT_MONTH = currentMonthKey()
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
   const [showAddModal, setShowAddModal] = useState(false)
   const [categories, setCategories] = useState([])
+  const [loadError, setLoadError] = useState('')
   const { user } = useAuth()
 
   const loadData = useCallback(async () => {
+    setLoadError('')
     try {
-      const [reportResult, budgetResult] = await Promise.all([
+      // Month bounds are resolved by the API in the user's timezone.
+      const [reportResult, budgetResult, txnResult] = await Promise.all([
         realAdapter.getDashboardReport({ month: selectedMonth }),
         realAdapter.getBudgets({ month: selectedMonth }),
+        realAdapter.getTransactions({ limit: 6, month: selectedMonth }),
       ])
 
       setSummary(reportResult)
       setCategorySpending(reportResult.categorySpending)
       setMonthlyTrend(reportResult.monthlyTrend)
       setBudgets(budgetResult.budgets)
-
-      const [year, month] = selectedMonth.split('-').map(Number)
-      const lastDay = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)).toISOString()
-      const txnResult = await realAdapter.getTransactions({
-        limit: 6,
-        from: `${selectedMonth}-01T00:00:00.000Z`,
-        to: lastDay,
-      })
       setRecentTransactions(txnResult.transactions)
-
       setInsights([])
     } catch (err) {
-      console.error('Failed to load dashboard data:', err)
+      setLoadError(err.message || 'Could not load your dashboard.')
     }
   }, [selectedMonth])
 
@@ -59,13 +54,25 @@ export default function Dashboard() {
     loadData()
   }, [loadData])
   useEffect(() => {
-    realAdapter.getCategories().then(result => setCategories(result.categories))
+    realAdapter.getCategories()
+      .then(result => setCategories(result.categories))
+      .catch(err => setLoadError(err.message || 'Could not load categories.'))
   }, [])
 
-  const handleAddTransaction = (transaction) => {
-    setRecentTransactions(prev => [transaction, ...prev].slice(0, 6))
+  // Persist first; errors propagate to the form so it stays open with the message.
+  const handleAddTransaction = async (transaction) => {
+    await realAdapter.createTransaction(transaction)
     setShowAddModal(false)
     loadData()
+  }
+
+  if (!summary && loadError) {
+    return (
+      <div className="space-y-4">
+        <ErrorAlert message={loadError} />
+        <Button variant="secondary" onClick={loadData}>Try again</Button>
+      </div>
+    )
   }
 
   if (!summary) {
@@ -118,9 +125,9 @@ export default function Dashboard() {
           </h1>
           <div className="flex flex-wrap items-center gap-2 body-md text-body-md text-secondary">
             <span>
-              Your money, under control. Here's your financial flightpath for{' '}
+              Your money, under control. Here&apos;s your financial flightpath for{' '}
               <span className="font-medium text-on-surface">
-                {new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                {formatMonthKey(selectedMonth)}
               </span>
             </span>
             {user?.monthlyIncomePaise ? (
@@ -137,27 +144,18 @@ export default function Dashboard() {
               onClick={() => setSelectedMonth(CURRENT_MONTH)}
               className="px-3.5 py-1.5 rounded-lg text-label-md font-label-md bg-surface-container-lowest text-on-surface shadow-sm transition-colors"
             >
-              {new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+              {formatMonthKey(selectedMonth)}
             </button>
             <button
-              onClick={() => {
-                const d = new Date(selectedMonth + '-01')
-                d.setMonth(d.getMonth() - 1)
-                setSelectedMonth(d.toISOString().slice(0, 7))
-              }}
+              onClick={() => setSelectedMonth(month => shiftMonthKey(month, -1))}
               className="px-3.5 py-1.5 rounded-lg text-label-md font-label-md text-secondary hover:text-on-surface transition-colors"
             >
               Previous Month
             </button>
             <button
               onClick={() => {
-                if (selectedMonth >= CURRENT_MONTH) return
-                const d = new Date(selectedMonth + '-01')
-                d.setMonth(d.getMonth() + 1)
-                const next = d.toISOString().slice(0, 7)
-                if (next <= CURRENT_MONTH) {
-                  setSelectedMonth(next)
-                }
+                const next = shiftMonthKey(selectedMonth, 1)
+                if (next <= CURRENT_MONTH) setSelectedMonth(next)
               }}
               disabled={selectedMonth >= CURRENT_MONTH}
               className={cn(
@@ -173,6 +171,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      {loadError && <ErrorAlert message={loadError} onDismiss={() => setLoadError('')} />}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card padded={false} className="p-5">
           <div className="flex items-center justify-between mb-4">
@@ -320,7 +319,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-              <div className="flex-1 min-w-[280px]">
+              <div className="flex-1 min-w-0">
                 <DonutChart data={categorySpending} width={320} height={320} title="" />
               </div>
               <div className="flex-1 space-y-3">
@@ -405,9 +404,9 @@ export default function Dashboard() {
                       {txn.type === 'income' ? '+' : '-'}₹{(txn.amount / 100).toFixed(2)}
                     </span>
                   ),
-                  status: (
+                  status: txn.status ? (
                     <Badge variant="neutral" className="text-xs">{txn.status}</Badge>
-                  ),
+                  ) : null,
                 }))}
               />
             </CardContent>

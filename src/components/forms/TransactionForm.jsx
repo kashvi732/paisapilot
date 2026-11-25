@@ -6,15 +6,16 @@ import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { cn } from '../../utils/cn'
 import { TRANSACTION_TYPES, RECURRENCE_FREQUENCIES } from '../../utils/constants'
-import { parseINRString } from '../../utils/format'
+import { parseINRString, toDateTimeLocalValue } from '../../utils/format'
 import { transactionSchema } from '../../utils/validation'
+import { ErrorAlert } from '../ui/ErrorAlert'
 
 export function TransactionForm({ isOpen, onClose, onSave, transaction = null, categories = [] }) {
   const [form, setForm] = useState({
     type: 'expense',
     amount: '',
     categoryId: '',
-    date: `${new Date().toISOString().slice(0, 10)}T12:00`,
+    date: toDateTimeLocalValue(),
     paymentMode: 'upi',
     note: '',
     isRecurring: false,
@@ -24,6 +25,8 @@ export function TransactionForm({ isOpen, onClose, onSave, transaction = null, c
     },
   })
   const [errors, setErrors] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   useEffect(() => {
     if (!isOpen) return
@@ -31,21 +34,26 @@ export function TransactionForm({ isOpen, onClose, onSave, transaction = null, c
       type: transaction?.type || 'expense',
       amount: transaction ? String(transaction.amount / 100) : '',
       categoryId: transaction?.categoryId || '',
-      date: transaction?.date ? transaction.date.slice(0, 16) : `${new Date().toISOString().slice(0, 10)}T12:00`,
+      // The API returns UTC instants; datetime-local inputs expect local time.
+      // Slicing the ISO string would shift the saved time by the UTC offset on every edit.
+      date: transaction?.date ? toDateTimeLocalValue(transaction.date) : toDateTimeLocalValue(),
       paymentMode: transaction?.paymentMode || 'upi',
       note: transaction?.note || '',
       isRecurring: transaction?.isRecurring || false,
       recurrence: transaction?.recurrence || { frequency: 'monthly', interval: 1 },
     })
     setErrors({})
+    setSubmitError('')
+    setSaving(false)
   }, [isOpen, transaction])
 
   const handleTypeChange = (type) => {
     setForm(prev => ({ ...prev, type }))
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    if (saving) return
     const newErrors = {}
     if (!form.type) newErrors.type = 'Type is required'
     if (!/^\d+(\.\d{1,2})?$/.test(form.amount.trim()) || parseINRString(form.amount) <= 0) {
@@ -76,23 +84,36 @@ export function TransactionForm({ isOpen, onClose, onSave, transaction = null, c
     setErrors(newErrors)
     if (Object.keys(newErrors).length > 0) return
 
-    onSave(payload)
-    onClose()
+    // Keep the form open until the save succeeds so failures are not lost.
+    setSaving(true)
+    setSubmitError('')
+    try {
+      await onSave(payload)
+      onClose()
+    } catch (err) {
+      const fieldErrors = err?.fields || {}
+      if (Object.keys(fieldErrors).length > 0) setErrors(fieldErrors)
+      setSubmitError(err?.message || 'Could not save the transaction. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Add Transaction"
+      title={transaction ? 'Edit Transaction' : 'Add Transaction'}
       size="md"
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {submitError && <ErrorAlert message={submitError} />}
         <div className="flex gap-2">
           {TRANSACTION_TYPES.map(t => (
             <button
               key={t.value}
               type="button"
+              aria-pressed={form.type === t.value}
               onClick={() => handleTypeChange(t.value)}
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors font-medium text-sm',
@@ -156,6 +177,8 @@ export function TransactionForm({ isOpen, onClose, onSave, transaction = null, c
           value={form.note}
           onChange={e => setForm(prev => ({ ...prev, note: e.target.value }))}
           placeholder="e.g. Grocery shopping, team lunch"
+          maxLength={500}
+          error={errors.note}
         />
 
         <div className="flex items-center gap-3 pt-2">
@@ -186,12 +209,14 @@ export function TransactionForm({ isOpen, onClose, onSave, transaction = null, c
           <Button
             variant="secondary"
             onClick={onClose}
+            disabled={saving}
           >
             Cancel
           </Button>
           <Button
             variant="primary"
             type="submit"
+            loading={saving}
           >
             Save Transaction
           </Button>

@@ -6,6 +6,7 @@ export function Select({
   value,
   onChange,
   placeholder,
+  clearable = false,
   disabled,
   error,
   helperText,
@@ -31,7 +32,7 @@ export function Select({
           {...props}
         >
           {placeholder && (
-            <option value="" disabled>
+            <option value="" disabled={!clearable}>
               {placeholder}
             </option>
           )}

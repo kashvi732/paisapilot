@@ -1,25 +1,50 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 
+// Requests where a 401 is an expected answer rather than a lost session.
+const AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/me', '/auth/logout']
+let unauthorizedHandler = null
+
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = handler
+}
+
+async function toApiError(response, fallbackMessage) {
+  const body = await response.json().catch(() => ({}))
+  const error = new Error(body.error?.message || fallbackMessage)
+  error.status = response.status
+  error.code = body.error?.code
+  error.fields = body.error?.fields
+  return error
+}
+
+function notifyUnauthorized(path, status) {
+  if (status === 401 && unauthorizedHandler && !AUTH_PATHS.some(authPath => path.startsWith(authPath))) {
+    unauthorizedHandler()
+  }
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
+  const { headers, ...rest } = options
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: 'include',
+      ...rest,
+      headers: {
+        ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(headers || {}),
+      },
+    })
+  } catch {
+    throw new Error('Could not reach the PaisaPilot server. Check your connection and try again.')
+  }
 
   if (response.status === 204) return null
-  const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    const error = new Error(body.error?.message || 'Request failed.')
-    error.status = response.status
-    error.code = body.error?.code
-    error.fields = body.error?.fields
-    throw error
+    notifyUnauthorized(path, response.status)
+    throw await toApiError(response, 'Request failed.')
   }
-  return body
+  return response.json().catch(() => ({}))
 }
 
 const toPaise = amount => Math.round(Number(amount || 0) * 100)
@@ -77,6 +102,7 @@ export const api = {
       type: params?.type,
       from: params?.from,
       to: params?.to,
+      month: params?.month,
       categoryId,
     }
     Object.entries(allowed).forEach(([key, value]) => {
@@ -127,11 +153,11 @@ export const api = {
   }).then(result => ({ budget: fromBudget(result.budget) })),
 
   getDashboardReport: async ({ month }) => {
-    const [year, monthNumber] = month.split('-').map(Number)
-    const lastDay = new Date(Date.UTC(year, monthNumber, 0, 23, 59, 59, 999)).toISOString()
+    // The server resolves `month` in the user's timezone for every report, so
+    // the category breakdown covers exactly the same window as the summary.
     const [summary, categories, trend] = await Promise.all([
       request(`/reports/summary?month=${encodeURIComponent(month)}`),
-      request(`/reports/by-category?from=${encodeURIComponent(`${month}-01T00:00:00.000Z`)}&to=${encodeURIComponent(lastDay)}`),
+      request(`/reports/by-category?month=${encodeURIComponent(month)}`),
       request(`/reports/monthly-trend?year=${month.slice(0, 4)}`),
     ])
     const totalExpensePaise = summary?.summary?.expensePaise || 0
@@ -157,14 +183,13 @@ export const api = {
     }
   },
   getMonthlyTrend: async ({ year }) => request(`/reports/monthly-trend?year=${year}`),
-  exportReport: async ({ from, to }) => {
-    const query = new URLSearchParams({ from, to, format: 'csv' })
-    const response = await fetch(`${API_BASE_URL}/reports/export?${query}`, {
-      credentials: 'include',
-    })
+  exportReport: async ({ month, from, to }) => {
+    const query = new URLSearchParams(month ? { month, format: 'csv' } : { from, to, format: 'csv' })
+    const path = `/reports/export?${query}`
+    const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include' })
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}))
-      throw new Error(body.error?.message || 'Could not export report.')
+      notifyUnauthorized(path, response.status)
+      throw await toApiError(response, 'Could not export report.')
     }
     return response.blob()
   },

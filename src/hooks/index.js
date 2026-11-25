@@ -1,19 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
-export function useAuth() {
-  // Placeholder — real implementation uses AuthContext
-  return { user: null, loading: true, isAuthenticated: false, login: () => {}, logout: () => {} }
-}
-
-export function useDemoMode() {
-  return { demoMode: true, toggleDemoMode: () => {}, resetDemoData: () => {} }
-}
+// Auth and demo-mode hooks live in src/context; import them from there.
 
 export function useDebounce(callback, delay) {
-  let timeoutId
+  const timeoutRef = useRef()
+  useEffect(() => () => clearTimeout(timeoutRef.current), [])
   return useCallback((...args) => {
-    clearTimeout(timeoutId)
-    timeoutId = setTimeout(() => callback(...args), delay)
+    clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => callback(...args), delay)
   }, [callback, delay])
 }
 
@@ -39,10 +33,4 @@ export function useLocalStorage(key, initialValue) {
   }, [key, storedValue])
 
   return [storedValue, setValue]
-}
-
-export function useDemoData() {
-  // Hook for components to access demo data through the adapter
-  // This is a thin wrapper — pages should call demoAdapter methods directly
-  return null
 }
